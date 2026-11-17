@@ -1,0 +1,6 @@
+services:
+  gate:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: wasm-sealed-forms-test

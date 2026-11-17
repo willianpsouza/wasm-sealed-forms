@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    image: wasm-sealed-forms
+    ports:
+      - "8097:8097"
+    environment:
+      ADDR: ":8097"
+      STATIC_DIR: "/web/static"
+    restart: unless-stopped

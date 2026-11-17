@@ -1,0 +1,7 @@
+.git
+web/wasm/target
+web/static/pkg
+web/wasm/src/keys_gen.rs
+cmd/server/keys_gen.go
+out
+coverage.out

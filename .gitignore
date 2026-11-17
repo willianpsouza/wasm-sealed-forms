@@ -1,0 +1,10 @@
+# Generated keypairs — regenerated at build, NEVER commit (repo is public)
+/web/wasm/src/keys_gen.rs
+/cmd/server/keys_gen.go
+
+# Build artifacts
+/web/wasm/target/
+/web/static/pkg/
+/out/
+/coverage.out
+*.wasm
