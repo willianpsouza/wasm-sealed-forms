@@ -50,6 +50,11 @@ type submitResponse struct {
 	Error        string   `json:"error,omitempty"`
 }
 
+// handleSubmit decrypts and verifies a sealed form submission.
+//
+// No replay protection: a captured envelope can be resubmitted and will decrypt
+// again. For a real system bind each envelope to a server-issued nonce/timestamp
+// (as AAD) and reject duplicates. Out of scope for this demo.
 func handleSubmit(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
 	if err != nil {

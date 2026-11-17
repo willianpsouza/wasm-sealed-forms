@@ -70,6 +70,9 @@ Eles só veem o envelope selado.
   a terminação de TLS deixe de expor o corpo.
 - **Segurança por obscuridade.** A API opaca aumenta o esforço do atacante; não
   substitui autenticação/autorização.
+- **Replay.** Um envelope capturado descriptografa de novo. Vincule cada
+  envelope a um nonce/timestamp emitido pelo servidor (como AAD) e rejeite
+  repetições.
 
 Resumindo: isto garante **confidencialidade dos dados do formulário contra
 intermediários**, e nada além disso. É exatamente a propriedade de que o demo trata.

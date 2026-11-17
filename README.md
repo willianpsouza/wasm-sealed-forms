@@ -67,6 +67,8 @@ ever see the sealed envelope.
   TLS termination no longer exposes the body.
 - **Security by obscurity.** The opaque API raises attacker effort; it is not a
   substitute for authn/authz.
+- **Replay.** A captured envelope re-decrypts. Bind each envelope to a
+  server-issued nonce/timestamp (as AAD) and reject repeats.
 
 In short: this buys **confidentiality of form data against intermediaries**, and
 nothing more. That is exactly the property the demo is about.
