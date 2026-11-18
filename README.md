@@ -40,7 +40,11 @@ browser                                   intermediaries        backend
 - `GET /pkg/*` — the compiled WASM artifact + JS glue
 - `POST /api/submit` — decrypts the envelope, verifies the signature, parses the
   PII **inside the trust boundary**, and replies with non-PII metadata only
-  (submission id, field count, which required fields were present/missing).
+  (submission id, field count, which required fields were present/missing, and a
+  `digest` = sha256(form) receipt the client can compare). `signature_ok` is
+  informational, not an access gate. Error replies are generic
+  (`invalid request` / `could not process submission`) — the real cause is
+  logged server-side, never returned, so a tampered envelope reveals nothing.
 
 A bonus the request mentions: the public API exposes **no readable schema** — the
 endpoint consumes opaque sealed blobs. That raises the cost of casually scraping

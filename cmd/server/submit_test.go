@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -135,6 +136,46 @@ func TestSubmitHappyPathNoPIILeak(t *testing.T) {
 		if strings.Contains(raw, pii) {
 			t.Errorf("PII leaked in response: %q", pii)
 		}
+	}
+	// the backend-recomputed digest must match sha256(form)
+	want := fmt.Sprintf("%x", sha256.Sum256([]byte(form)))
+	if resp.Digest != want {
+		t.Errorf("digest = %q want %q", resp.Digest, want)
+	}
+}
+
+func TestSubmitGenericErrorNoLeak(t *testing.T) {
+	priv := withTestKey(t)
+	// build a valid request, then corrupt the ciphertext so AEAD open fails
+	good := sealForm(t, priv, `{"full_name":"X","cpf":"1","birth_date":"1","address":"a","bank_account":"b"}`)
+	var req submitRequest
+	_ = json.Unmarshal([]byte(good), &req)
+	env, _ := base64.StdEncoding.DecodeString(req.Payload)
+	env[len(env)-1] ^= 0xff // flip a ciphertext byte
+	bad, _ := json.Marshal(submitRequest{Payload: base64.StdEncoding.EncodeToString(env)})
+
+	resp, raw := post(t, string(bad))
+	if resp.Received {
+		t.Error("should not be received")
+	}
+	if resp.Error != errCannotProcess {
+		t.Errorf("error = %q want generic %q", resp.Error, errCannotProcess)
+	}
+	// internal detail must never reach the client
+	for _, leak := range []string{"chacha20poly1305", "authentication failed", "unseal", "aead"} {
+		if strings.Contains(strings.ToLower(raw), leak) {
+			t.Errorf("internal detail leaked: %q in %q", leak, raw)
+		}
+	}
+}
+
+func TestSubmitBadBase64Generic(t *testing.T) {
+	resp, raw := post(t, `{"payload":"!!!"}`)
+	if resp.Error != errInvalidRequest {
+		t.Errorf("error = %q want %q", resp.Error, errInvalidRequest)
+	}
+	if strings.Contains(raw, "base64") {
+		t.Errorf("leaked base64 detail: %q", raw)
 	}
 }
 

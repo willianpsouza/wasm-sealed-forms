@@ -43,7 +43,11 @@ navegador                                 intermediários        backend
 - `POST /api/submit` — descriptografa o envelope, verifica a assinatura, faz o
   parse do PII **dentro do perímetro de confiança** e responde apenas com
   metadados sem PII (id do envio, contagem de campos, quais obrigatórios estavam
-  presentes/ausentes).
+  presentes/ausentes e um `digest` = sha256(form) como recibo que o cliente pode
+  comparar). `signature_ok` é informativo, não é controle de acesso. As respostas
+  de erro são genéricas (`invalid request` / `could not process submission`) — a
+  causa real é logada no servidor, nunca retornada, então um envelope adulterado
+  não revela nada.
 
 Um bônus citado no pedido: a API pública **não expõe nenhum schema legível** — o
 endpoint consome blobs selados opacos. Isso aumenta o custo de raspar ou fuzzar a

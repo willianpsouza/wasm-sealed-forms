@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 
@@ -38,16 +40,39 @@ type sealedInner struct {
 	SigB64  string `json:"sig_b64"`
 }
 
+// Generic, non-leaking client-facing error messages. The real cause is logged
+// server-side, never returned, so a tampered envelope does not reveal the
+// algorithm or exact failure (e.g. "chacha20poly1305: message authentication
+// failed").
+const (
+	errInvalidRequest = "invalid request"
+	errCannotProcess  = "could not process submission"
+)
+
 // submitResponse carries NO PII — only metadata the backend is willing to
 // expose about an accepted submission.
 type submitResponse struct {
-	Received     bool     `json:"received"`
+	Received bool `json:"received"`
+	// SignatureOK is INFORMATIONAL only. It is not an access-control gate (the
+	// submit is accepted regardless) and it does not prove who submitted: the
+	// Ed25519 key is extractable from the public .wasm, so anyone can forge a
+	// valid signature. Keep real auth (session/token/mTLS) server-side.
 	SignatureOK  bool     `json:"signature_ok"`
 	SubmissionID string   `json:"submission_id,omitempty"`
 	FieldCount   int      `json:"field_count,omitempty"`
 	Present      []string `json:"present,omitempty"`
 	Missing      []string `json:"missing,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	// Digest is sha256(form) recomputed server-side so the client can compare it
+	// with its own digest and confirm the round-trip. Integrity is already
+	// guaranteed by the AEAD + signature; this is the visible receipt.
+	Digest string `json:"digest,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// clientError logs the real cause and returns a generic message to the client.
+func clientError(w http.ResponseWriter, code int, msg string, internal error) {
+	log.Printf("submit: %v", internal)
+	writeJSON(w, code, submitResponse{Error: msg})
 }
 
 // handleSubmit decrypts and verifies a sealed form submission.
@@ -58,53 +83,59 @@ type submitResponse struct {
 func handleSubmit(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "read body: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errInvalidRequest, fmt.Errorf("read body: %w", err))
 		return
 	}
 	var req submitRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "bad json: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errInvalidRequest, fmt.Errorf("bad json: %w", err))
 		return
 	}
 	envelope, err := base64.StdEncoding.DecodeString(req.Payload)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "bad base64: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errInvalidRequest, fmt.Errorf("bad base64: %w", err))
 		return
 	}
 
 	plaintext, err := unseal(envelope)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "unseal: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errCannotProcess, fmt.Errorf("unseal: %w", err))
 		return
 	}
 
 	var inner sealedInner
 	if err := json.Unmarshal(plaintext, &inner); err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "inner json: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errCannotProcess, fmt.Errorf("inner json: %w", err))
 		return
 	}
 	formBytes, err := base64.StdEncoding.DecodeString(inner.BodyB64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "body b64: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errCannotProcess, fmt.Errorf("body b64: %w", err))
 		return
 	}
 	sig, err := base64.StdEncoding.DecodeString(inner.SigB64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, submitResponse{Error: "sig b64: " + err.Error()})
+		clientError(w, http.StatusBadRequest, errCannotProcess, fmt.Errorf("sig b64: %w", err))
 		return
 	}
 
+	// Informational only — NOT an access-control gate and NOT proof of origin
+	// (the signing key is extractable from the public .wasm). See SignatureOK.
 	sigOK := ed25519.Verify(ed25519Pub, formBytes, sig)
 
 	// Inspect keys only — never read PII values into the response.
 	var form map[string]json.RawMessage
 	if err := json.Unmarshal(formBytes, &form); err != nil {
+		log.Printf("submit: form not a JSON object: %v", err)
 		writeJSON(w, http.StatusBadRequest, submitResponse{
-			Received: true, SignatureOK: sigOK, Error: "form not a JSON object: " + err.Error(),
+			Received: true, SignatureOK: sigOK, Error: errCannotProcess,
 		})
 		return
 	}
 	present, missing := checkFields(form)
+
+	// sha256(form) recomputed inside the trust boundary as a visible receipt.
+	digest := fmt.Sprintf("%x", sha256.Sum256(formBytes))
 
 	// A real backend would persist the decrypted PII here, inside the trust
 	// boundary. The demo just acknowledges with non-PII metadata.
@@ -115,6 +146,7 @@ func handleSubmit(w http.ResponseWriter, r *http.Request) {
 		FieldCount:   len(form),
 		Present:      present,
 		Missing:      missing,
+		Digest:       digest,
 	})
 }
 

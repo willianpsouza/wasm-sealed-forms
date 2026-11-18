@@ -126,7 +126,7 @@ $("form").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ payload: out.payload }),
     });
-    renderAck(await r.json());
+    renderAck(await r.json(), out.digest);
   } catch (err) {
     $("ack-kv").innerHTML = kv("error", `<span class="bad">${err}</span>`);
     show($("ack"));
@@ -134,10 +134,16 @@ $("form").addEventListener("submit", async (e) => {
   $("submit").disabled = false;
 });
 
-function renderAck(res) {
+function renderAck(res, clientDigest) {
+  const digestRow = res.digest
+    ? kv("digest match", res.digest === clientDigest
+        ? `<span class="ok">yes</span> round-trip confirmed`
+        : `<span class="bad">no</span>`)
+    : "";
   $("ack-kv").innerHTML =
     kv("received", res.received ? `<span class="ok">yes</span>` : `<span class="bad">no</span>`) +
     kv("signature valid", res.signature_ok ? `<span class="ok">yes</span>` : `<span class="bad">no</span>`) +
+    digestRow +
     (res.submission_id ? kv("submission id", res.submission_id) : "") +
     (res.field_count ? kv("field count", res.field_count) : "") +
     (res.present ? kv("required present", res.present.join(", ") || "—") : "") +
